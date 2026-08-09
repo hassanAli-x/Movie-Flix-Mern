@@ -1,0 +1,12 @@
+.inputBox{
+    display: flex;
+    background-color: aquamarine;
+    border-radius: 5px;
+}
+.inputBox input{
+    border-radius: 5px;
+   flex: 1;
+   background-color: transparent;
+   padding: 10px;
+
+}
