@@ -6,7 +6,7 @@ const favoritesRoutes = require("./routes/favoritesRoutes");
 const app = express();
 
 app.use(cors({
-  origin: ["http://localhost:5173", "https://movie-flix-mern-gjaiupbbu-hassan-ali-x.vercel.app"],
+  origin: ["http://localhost:5173", "https://movie-flix-mern.vercel.app"],
 }));
 app.use(express.json());
 
