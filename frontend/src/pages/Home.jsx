@@ -10,7 +10,22 @@ import Navbar from "../components/Navbar";
 import MovieCard from "../components/MovieCard";
 import { useAuth } from "../context/AuthContext";
 import { useFavorites } from "../context/FavoritesContext";
-import { getPopularMovies, searchMovies, getMovieById, getPosterUrl } from "../services/tmdb";
+import {
+  getPopularMovies,
+  searchMovies,
+  discoverMovies,
+  getGenres,
+  getMovieById,
+  getPosterUrl,
+} from "../services/tmdb";
+
+const DEFAULT_SORT = "popularity.desc";
+const SORT_OPTIONS = [
+  { value: "popularity.desc", label: "Most popular" },
+  { value: "vote_average.desc", label: "Top rated" },
+  { value: "primary_release_date.desc", label: "Newest first" },
+  { value: "primary_release_date.asc", label: "Oldest first" },
+];
 
 function Home() {
   const { user, logout } = useAuth();
@@ -25,44 +40,68 @@ function Home() {
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [genres, setGenres] = useState([]);
+  const [selectedGenre, setSelectedGenre] = useState(""); // "" = all genres
+  const [sortBy, setSortBy] = useState(DEFAULT_SORT);
+
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [favoriteMovies, setFavoriteMovies] = useState([]);
   const [loadingFavorites, setLoadingFavorites] = useState(false);
 
   const observerRef = useRef(null);
 
-  // Reset to page 1 whenever the search query changes
+  const isFiltered = selectedGenre !== "" || sortBy !== DEFAULT_SORT;
+
+  // Load the genre list once (if it fails, the page still works without filters)
+  useEffect(() => {
+    getGenres().then(setGenres).catch(() => {});
+  }, []);
+
+  // Reset to page 1 whenever the search, genre, or sort changes
   useEffect(() => {
     setMovies([]);
     setPage(1);
     setTotalPages(1);
-  }, [searchQuery]);
+  }, [searchQuery, selectedGenre, sortBy]);
 
-  // Fetch popular/search movies (skip entirely while viewing favorites)
+  // Fetch movies (skip entirely while viewing favorites)
   useEffect(() => {
     if (showFavoritesOnly) return;
+
+    let cancelled = false; // ignore responses from outdated requests
 
     async function loadMovies() {
       page === 1 ? setLoading(true) : setLoadingMore(true);
       setError("");
       try {
-        const data = searchQuery
-          ? await searchMovies(searchQuery, page)
-          : await getPopularMovies(page);
+        let data;
+        if (searchQuery) {
+          data = await searchMovies(searchQuery, page);
+        } else if (selectedGenre !== "" || sortBy !== DEFAULT_SORT) {
+          data = await discoverMovies({ page, genre: selectedGenre, sortBy });
+        } else {
+          data = await getPopularMovies(page);
+        }
 
+        if (cancelled) return;
         setMovies((prev) => (page === 1 ? data.results : [...prev, ...data.results]));
         setTotalPages(data.total_pages);
       } catch (err) {
-        setError("Couldn't load movies. Check your API key and connection.");
+        if (!cancelled) setError("Couldn't load movies. Check your API key and connection.");
       } finally {
-        setLoading(false);
-        setLoadingMore(false);
+        if (!cancelled) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     }
 
     const delay = setTimeout(loadMovies, page === 1 ? 400 : 0);
-    return () => clearTimeout(delay);
-  }, [page, searchQuery, showFavoritesOnly]);
+    return () => {
+      cancelled = true;
+      clearTimeout(delay);
+    };
+  }, [page, searchQuery, selectedGenre, sortBy, showFavoritesOnly]);
 
   // Fetch full details for each favorited movie ID whenever favorites view is opened
   useEffect(() => {
@@ -75,7 +114,7 @@ function Home() {
         const results = await Promise.all(
           favorites.map((id) => getMovieById(id).catch(() => null))
         );
-        setFavoriteMovies(results.filter(Boolean)); // drop any that failed to fetch
+        setFavoriteMovies(results.filter(Boolean));
       } catch (err) {
         setError("Couldn't load favorite movies.");
       } finally {
@@ -91,7 +130,7 @@ function Home() {
     }
   }, [showFavoritesOnly, favorites]);
 
-  // IntersectionObserver for infinite scroll (only active for popular/search list)
+  // IntersectionObserver for infinite scroll
   const lastMovieRef = useCallback(
     (node) => {
       if (loading || loadingMore || showFavoritesOnly) return;
@@ -113,15 +152,21 @@ function Home() {
     navigate("/login");
   };
 
+  const clearFilters = () => {
+    setSelectedGenre("");
+    setSortBy(DEFAULT_SORT);
+  };
+
   const featuredMovies = movies.slice(0, 5);
   const visibleMovies = showFavoritesOnly ? favoriteMovies : movies;
   const isLoadingCurrentView = showFavoritesOnly ? loadingFavorites : loading;
+  const showFilterBar = !searchQuery && !showFavoritesOnly;
 
   return (
     <div className="min-h-screen bg-zinc-950">
       <Navbar searchQuery={searchQuery} onSearchChange={setSearchQuery} />
 
-      {!searchQuery && !showFavoritesOnly && featuredMovies.length > 0 && (
+      {!searchQuery && !showFavoritesOnly && !isFiltered && featuredMovies.length > 0 && (
         <Swiper
           navigation={true}
           modules={[Navigation, Autoplay]}
@@ -153,7 +198,7 @@ function Home() {
       )}
 
       <div className="px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-white">
             Welcome{user?.name ? `, ${user.name}` : ""}
           </h1>
@@ -175,10 +220,71 @@ function Home() {
               className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition"
             >
               <LogOut size={18} />
-              Login
+              Logout
             </button>
           </div>
         </div>
+
+        {showFilterBar && (
+          <div className="mb-8 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <label htmlFor="sort" className="text-zinc-400 text-sm">
+                  Sort by
+                </label>
+                <select
+                  id="sort"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="bg-zinc-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  {SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isFiltered && (
+                <button
+                  onClick={clearFilters}
+                  className="text-sm text-red-500 hover:text-red-400 transition"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+
+            {genres.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                <button
+                  onClick={() => setSelectedGenre("")}
+                  className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition ${
+                    selectedGenre === ""
+                      ? "bg-red-600 text-white"
+                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                  }`}
+                >
+                  All
+                </button>
+                {genres.map((g) => (
+                  <button
+                    key={g.id}
+                    onClick={() => setSelectedGenre(g.id)}
+                    className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition ${
+                      selectedGenre === g.id
+                        ? "bg-red-600 text-white"
+                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    }`}
+                  >
+                    {g.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {isLoadingCurrentView ? (
           <p className="text-zinc-400 text-center mt-20">Loading movies...</p>
