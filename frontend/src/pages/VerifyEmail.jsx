@@ -1,72 +1,116 @@
 import { useEffect, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
-
-const API_URL = import.meta.env.VITE_API_URL;
+import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 function VerifyEmail() {
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get("token");
+  const { state } = useLocation();
+  const navigate = useNavigate();
+  const { verifyCode, resendCode } = useAuth();
 
-  const [status, setStatus] = useState("verifying"); // verifying | success | error
-  const [message, setMessage] = useState("");
+  const email = state?.email;
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [cooldown, setCooldown] = useState(60);
 
   useEffect(() => {
-    async function verify() {
-      if (!token) {
-        setStatus("error");
-        setMessage("No verification token found in the link.");
-        return;
-      }
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
-      try {
-        const res = await fetch(`${API_URL}/api/auth/verify/${token}`);
-        const data = await res.json();
+  if (!email) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
+        <div className="w-full max-w-md bg-zinc-900 rounded-2xl shadow-2xl p-8 text-center">
+          <p className="text-zinc-400 mb-6">
+            Sign up or log in first so we know which email to verify.
+          </p>
+          <Link to="/signup" className="text-red-500 hover:text-red-400 transition">
+            Go to Sign up
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
-        if (!res.ok) throw new Error(data.message);
-
-        setStatus("success");
-        setMessage(data.message);
-      } catch (err) {
-        setStatus("error");
-        setMessage(err.message);
-      }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+    setSubmitting(true);
+    try {
+      await verifyCode({ email, code });
+      navigate("/");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
+  };
 
-    verify();
-  }, [token]);
+  const handleResend = async () => {
+    setError("");
+    setInfo("");
+    try {
+      const message = await resendCode(email);
+      setInfo(message);
+      setCooldown(60);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-zinc-900 rounded-2xl shadow-2xl p-8 text-center">
-        {status === "verifying" && (
-          <p className="text-zinc-400">Verifying your email...</p>
-        )}
+      <div className="w-full max-w-md bg-zinc-900 rounded-2xl shadow-2xl p-8">
+        <h1 className="text-3xl font-bold text-white text-center">Verify your email</h1>
+        <p className="text-zinc-400 text-center mt-2 mb-8">
+          We sent a 6-digit code to <span className="text-white">{email}</span>.
+          Check your spam folder too.
+        </p>
 
-        {status === "success" && (
-          <>
-            <h1 className="text-2xl font-bold text-white mb-3">Email Verified</h1>
-            <p className="text-zinc-400 mb-6">{message}</p>
-            <Link
-              to="/login"
-              className="inline-block bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded-lg transition"
-            >
-              Go to Login
-            </Link>
-          </>
-        )}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="123456"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            className="w-full rounded-lg bg-zinc-800 px-4 py-3 text-white text-center text-2xl tracking-[0.5em] placeholder-zinc-600 outline-none focus:ring-2 focus:ring-red-500"
+            required
+          />
 
-        {status === "error" && (
-          <>
-            <h1 className="text-2xl font-bold text-white mb-3">Verification Failed</h1>
-            <p className="text-red-500 mb-6">{message}</p>
-            <Link
-              to="/login"
-              className="text-red-500 hover:text-red-400 transition"
-            >
-              Back to Login
-            </Link>
-          </>
-        )}
+          {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+          {info && <p className="text-sm text-green-500 text-center">{info}</p>}
+
+          <button
+            type="submit"
+            disabled={submitting || code.length !== 6}
+            className="w-full bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed transition duration-300 text-white font-semibold py-3 rounded-lg"
+          >
+            {submitting ? "Verifying..." : "Verify"}
+          </button>
+        </form>
+
+        <div className="text-center text-zinc-400 mt-6">
+          Didn't get a code?{" "}
+          <button
+            onClick={handleResend}
+            disabled={cooldown > 0}
+            className="text-red-500 hover:text-red-400 disabled:text-zinc-500 disabled:cursor-not-allowed transition"
+          >
+            {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
+          </button>
+        </div>
+
+        <p className="text-center mt-4">
+          <Link to="/login" className="text-zinc-500 hover:text-zinc-300 transition text-sm">
+            Back to login
+          </Link>
+        </p>
       </div>
     </div>
   );

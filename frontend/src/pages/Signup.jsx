@@ -17,14 +17,10 @@ function Signup() {
     e.preventDefault();
     setError("");
     setSubmitting(true);
-    try {
+       try {
       await signup({ username, name, email, password });
-      navigate("/");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+      navigate("/verify-email", { state: { email } });
+    } catch (err) {}
   };
 
   return (
@@ -60,12 +56,13 @@ function Signup() {
           />
           <input
             type="password"
-            placeholder="Password (min 6 characters)"
+            placeholder="Password (min 8 characters)"
             value={password}
             onChange={(e) => setPass(e.target.value)}
             className="w-full rounded-lg bg-zinc-800 px-4 py-3 text-white placeholder-zinc-400 outline-none focus:ring-2 focus:ring-red-500"
             required
-            minLength={6}
+            minLength={8}
+            maxLength={72}
           />
 
           {error && <p className="text-sm text-red-500 text-center">{error}</p>}

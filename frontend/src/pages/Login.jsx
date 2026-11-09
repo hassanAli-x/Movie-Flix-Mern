@@ -9,7 +9,7 @@ function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const navigate = useNavigate();
-  const { login } = useAuth();
+    const { login, resendCode } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,11 +18,15 @@ function Login() {
     try {
       await login({ email, password });
       navigate("/");
-    } catch (err) {
+    }      catch (err) {
+      if (err.needsVerification) {
+        // send a fresh code (ignore errors like the 1-minute cooldown) and go verify
+        try { await resendCode(err.email); } catch {}
+        navigate("/verify-email", { state: { email: err.email } });
+        return;
+      }
       setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+    } finally {}
   };
 
   return (
