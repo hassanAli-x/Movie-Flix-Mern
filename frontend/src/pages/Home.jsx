@@ -175,7 +175,7 @@ function Home() {
               className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition"
             >
               <LogOut size={18} />
-              Logout
+              Login
             </button>
           </div>
         </div>
